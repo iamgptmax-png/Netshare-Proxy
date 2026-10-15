@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="NetShare Proxy (HTTP / SOCKS5)"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:paddingBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tvStatusBadge"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Statut : ARRÊTÉ"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:paddingBottom="4dp" />
+
+        <TextView
+            android:id="@+id/tvTrafficStats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Données relayées : 0 B"
+            android:textSize="13sp"
+            android:paddingBottom="12dp" />
+
+        <!-- Sélection de l'interface réseau -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <Spinner
+                android:id="@+id/spinnerInterfaces"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1" />
+
+            <Button
+                android:id="@+id/btnRefreshIps"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Actualiser IP" />
+        </LinearLayout>
+
+        <!-- Configuration HTTP / HTTPS -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="12dp">
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switchHttp"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:checked="true"
+                android:text="Proxy HTTP / HTTPS" />
+
+            <EditText
+                android:id="@+id/etHttpPort"
+                android:layout_width="100dp"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:hint="Port HTTP"
+                android:text="8080" />
+        </LinearLayout>
+
+        <!-- Configuration SOCKS5 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="8dp">
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switchSocks"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:checked="true"
+                android:text="Proxy SOCKS5" />
+
+            <EditText
+                android:id="@+id/etSocksPort"
+                android:layout_width="100dp"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:hint="Port SOCKS5"
+                android:text="1080" />
+        </LinearLayout>
+
+        <!-- Authentification optionnelle -->
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchAuth"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:checked="false"
+            android:text="Activer l'authentification (Utilisateur / Mot de passe)" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etUsername"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Identifiant"
+                android:inputType="text" />
+
+            <EditText
+                android:id="@+id/etPassword"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Mot de passe"
+                android:inputType="textPassword" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnToggleProxy"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="16dp"
+            android:text="DÉMARRER LE SERVEUR PROXY" />
+
+        <!-- Journaux en temps réel -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="16dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Journaux de connexions en direct"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnClearLogs"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Effacer" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvLogs"
+            android:layout_width="match_parent"
+            android:layout_height="260dp"
+            android:background="#1E1E1E"
+            android:textColor="#00E676"
+            android:padding="10dp"
+            android:fontFamily="monospace"
+            android:textSize="12sp"
+            android:scrollbars="vertical"
+            android:text="Prêt à démarrer..." />
+
+    </LinearLayout>
+</ScrollView>
