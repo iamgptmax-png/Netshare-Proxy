@@ -46,6 +46,20 @@ object NetworkUtils {
         return result
     }
 
+    fun getBestShareableIp(selectedIp: String): String {
+        if (selectedIp != "0.0.0.0" && selectedIp != "127.0.0.1") {
+            return selectedIp
+        }
+        val all = getAvailableInterfaces()
+        val hotspotOrUsb = all.firstOrNull {
+            it.ipAddress != "0.0.0.0" && it.ipAddress != "127.0.0.1" &&
+            (it.label.contains("Point d'accès") || it.label.contains("USB") || it.label.contains("Wi-Fi"))
+        }
+        return hotspotOrUsb?.ipAddress
+            ?: all.firstOrNull { it.ipAddress != "0.0.0.0" && it.ipAddress != "127.0.0.1" }?.ipAddress
+            ?: "192.168.43.1"
+    }
+
     private fun classifyInterface(name: String, ip: String): String {
         val lower = name.lowercase()
         return when {
