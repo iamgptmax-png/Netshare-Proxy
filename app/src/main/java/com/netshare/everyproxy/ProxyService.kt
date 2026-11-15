@@ -17,6 +17,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 class ProxyService : Service() {
@@ -38,6 +39,7 @@ class ProxyService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
 
     val bytesTransferred = AtomicLong(0L)
+    val activeConnections = AtomicInteger(0)
     private val logs = CopyOnWriteArrayList<String>()
     var onLogListener: ((List<String>) -> Unit)? = null
     var onStateChangedListener: ((Boolean, Boolean) -> Unit)? = null
@@ -70,7 +72,8 @@ class ProxyService : Service() {
                 username = config.username,
                 password = config.password,
                 onLog = ::appendLog,
-                bytesTransferred = bytesTransferred
+                bytesTransferred = bytesTransferred,
+                activeConnections = activeConnections
             ).also { it.start() }
         }
 
@@ -82,7 +85,8 @@ class ProxyService : Service() {
                 username = config.username,
                 password = config.password,
                 onLog = ::appendLog,
-                bytesTransferred = bytesTransferred
+                bytesTransferred = bytesTransferred,
+                activeConnections = activeConnections
             ).also { it.start() }
         }
 
@@ -94,6 +98,7 @@ class ProxyService : Service() {
         httpServer = null
         socksServer?.stop()
         socksServer = null
+        activeConnections.set(0)
         releaseLocks()
         stopForeground(STOP_FOREGROUND_REMOVE)
         notifyState()
@@ -112,7 +117,7 @@ class ProxyService : Service() {
     private fun appendLog(message: String) {
         val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         logs.add("[$time] $message")
-        while (logs.size > 200) {
+        while (logs.size > 250) {
             logs.removeAt(0)
         }
         onLogListener?.invoke(logs.toList())
@@ -154,10 +159,10 @@ class ProxyService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Service NetShare Proxy",
+                "Service NetShare Proxy Pro",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Maintient le serveur proxy HTTP/SOCKS5 actif en arrière-plan"
+                description = "Maintient le serveur proxy HTTP/SOCKS5 haute performance actif"
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -177,13 +182,14 @@ class ProxyService : Service() {
             this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE
         )
 
+        val shareIp = NetworkUtils.getBestShareableIp(config.bindAddress)
         val activeList = mutableListOf<String>()
-        if (config.httpEnabled) activeList.add("HTTP :${config.httpPort}")
-        if (config.socksEnabled) activeList.add("SOCKS5 :${config.socksPort}")
+        if (config.httpEnabled) activeList.add("HTTP $shareIp:${config.httpPort}")
+        if (config.socksEnabled) activeList.add("SOCKS5 $shareIp:${config.socksPort}")
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("NetShare Proxy actif (${config.bindAddress})")
-            .setContentText(activeList.joinToString(" | "))
+            .setContentTitle("NetShare Proxy Pro • ACTIF")
+            .setContentText(activeList.joinToString("  |  "))
             .setSmallIcon(android.R.drawable.stat_sys_upload_done)
             .setOngoing(true)
             .setContentIntent(openPending)
