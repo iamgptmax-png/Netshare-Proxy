@@ -1,180 +1,471 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
+    android:background="#0B0F19"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:padding="16dp">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="NetShare Proxy (HTTP / SOCKS5)"
-            android:textSize="22sp"
-            android:textStyle="bold"
-            android:paddingBottom="4dp" />
-
-        <TextView
-            android:id="@+id/tvStatusBadge"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Statut : ARRÊTÉ"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:paddingBottom="4dp" />
-
-        <TextView
-            android:id="@+id/tvTrafficStats"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Données relayées : 0 B"
-            android:textSize="13sp"
-            android:paddingBottom="12dp" />
-
-        <!-- Sélection de l'interface réseau -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:paddingBottom="14dp">
 
-            <Spinner
-                android:id="@+id/spinnerInterfaces"
+            <ImageView
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:src="@drawable/ic_launcher_foreground"
+                android:background="@drawable/ic_launcher_background"
+                android:padding="2dp" />
+
+            <LinearLayout
                 android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1" />
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:orientation="vertical">
 
-            <Button
-                android:id="@+id/btnRefreshIps"
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="NetShare Proxy Pro"
+                    android:textColor="#F8FAFC"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Tunnel HTTP/HTTPS &amp; SOCKS5 • Sans Root"
+                    android:textColor="#94A3B8"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvStatusBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Actualiser IP" />
+                android:background="@drawable/bg_status_pill_off"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp"
+                android:text="● ARRÊTÉ"
+                android:textColor="#FF5252"
+                android:textSize="11sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- Configuration HTTP / HTTPS -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingTop="12dp">
+            android:baselineAligned="false"
+            android:paddingBottom="12dp">
 
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/switchHttp"
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:checked="true"
-                android:text="Proxy HTTP / HTTPS" />
+                android:layout_marginEnd="6dp"
+                app:cardBackgroundColor="#131C2E"
+                app:cardCornerRadius="14dp"
+                app:strokeColor="#1E293B"
+                app:strokeWidth="1dp">
 
-            <EditText
-                android:id="@+id/etHttpPort"
-                android:layout_width="100dp"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="DÉBIT DIRECT"
+                        android:textColor="#64748B"
+                        android:textSize="10sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvLiveSpeed"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="0 B/s"
+                        android:textColor="#00E5FF"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:inputType="number"
-                android:hint="Port HTTP"
-                android:text="8080" />
+                android:layout_weight="1"
+                android:layout_marginHorizontal="3dp"
+                app:cardBackgroundColor="#131C2E"
+                app:cardCornerRadius="14dp"
+                app:strokeColor="#1E293B"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="TOTAL RELAYÉ"
+                        android:textColor="#64748B"
+                        android:textSize="10sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvTrafficStats"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="0 B"
+                        android:textColor="#00E676"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                app:cardBackgroundColor="#131C2E"
+                app:cardCornerRadius="14dp"
+                app:strokeColor="#1E293B"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="CONNEXIONS"
+                        android:textColor="#64748B"
+                        android:textSize="10sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvActiveConns"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="0"
+                        android:textColor="#F8FAFC"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
 
-        <!-- Configuration SOCKS5 -->
-        <LinearLayout
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingTop="8dp">
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="#131C2E"
+            app:cardCornerRadius="16dp"
+            app:strokeColor="#1E293B"
+            app:strokeWidth="1dp">
 
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/switchSocks"
-                android:layout_width="0dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:checked="true"
-                android:text="Proxy SOCKS5" />
+                android:orientation="vertical"
+                android:padding="14dp">
 
-            <EditText
-                android:id="@+id/etSocksPort"
-                android:layout_width="100dp"
-                android:layout_height="wrap_content"
-                android:inputType="number"
-                android:hint="Port SOCKS5"
-                android:text="1080" />
-        </LinearLayout>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="INTERFACE D'ÉCOUTE &amp; ADRESSE DE PARTAGE"
+                    android:textColor="#94A3B8"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
 
-        <!-- Authentification optionnelle -->
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/switchAuth"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <Spinner
+                        android:id="@+id/spinnerInterfaces"
+                        android:layout_width="0dp"
+                        android:layout_height="46dp"
+                        android:layout_weight="1"
+                        android:backgroundTint="#00E676" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRefreshIps"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Actualiser"
+                        android:textColor="#00E5FF"
+                        app:backgroundTint="#1E293B" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvShareEndpoint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:fontFamily="monospace"
+                    android:text="HTTP 192.168.43.1:8080  •  SOCKS5 192.168.43.1:1080"
+                    android:textColor="#00E676"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnCopyEndpoint"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="4dp"
+                        android:text="Copier IP:Port"
+                        android:textColor="#F8FAFC"
+                        android:textSize="11sp"
+                        app:strokeColor="#334155" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnGuideClient"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_weight="1"
+                        android:layout_marginHorizontal="4dp"
+                        android:text="Aide Config"
+                        android:textColor="#00E5FF"
+                        android:textSize="11sp"
+                        app:strokeColor="#334155" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnBatteryOpt"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="4dp"
+                        android:text="Boost Batterie"
+                        android:textColor="#00E676"
+                        android:textSize="11sp"
+                        app:strokeColor="#334155" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingTop="8dp"
-            android:checked="false"
-            android:text="Activer l'authentification (Utilisateur / Mot de passe)" />
+            android:layout_marginBottom="14dp"
+            app:cardBackgroundColor="#131C2E"
+            app:cardCornerRadius="16dp"
+            app:strokeColor="#1E293B"
+            app:strokeWidth="1dp">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <EditText
-                android:id="@+id/etUsername"
-                android:layout_width="0dp"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="Identifiant"
-                android:inputType="text" />
+                android:orientation="vertical"
+                android:padding="14dp">
 
-            <EditText
-                android:id="@+id/etPassword"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="Mot de passe"
-                android:inputType="textPassword" />
-        </LinearLayout>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="SERVEURS PROXY &amp; AUTHENTIFICATION"
+                    android:textColor="#94A3B8"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
 
-        <Button
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/switchHttp"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:checked="true"
+                        android:text="Proxy HTTP / HTTPS (Tunnel TLS)"
+                        android:textColor="#F8FAFC"
+                        android:textSize="14sp" />
+
+                    <EditText
+                        android:id="@+id/etHttpPort"
+                        android:layout_width="88dp"
+                        android:layout_height="44dp"
+                        android:background="@drawable/bg_terminal"
+                        android:gravity="center"
+                        android:hint="Port"
+                        android:inputType="number"
+                        android:text="8080"
+                        android:textColor="#00E676"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/switchSocks"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:checked="true"
+                        android:text="Proxy SOCKS5 (TCP / DNS)"
+                        android:textColor="#F8FAFC"
+                        android:textSize="14sp" />
+
+                    <EditText
+                        android:id="@+id/etSocksPort"
+                        android:layout_width="88dp"
+                        android:layout_height="44dp"
+                        android:background="@drawable/bg_terminal"
+                        android:gravity="center"
+                        android:hint="Port"
+                        android:inputType="number"
+                        android:text="1080"
+                        android:textColor="#00E5FF"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchAuth"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:checked="false"
+                    android:text="Protéger par Identifiant / Mot de passe"
+                    android:textColor="#CBD5E1"
+                    android:textSize="13sp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutAuthFields"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <EditText
+                        android:id="@+id/etUsername"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="6dp"
+                        android:background="@drawable/bg_terminal"
+                        android:hint="Identifiant"
+                        android:inputType="text"
+                        android:paddingHorizontal="12dp"
+                        android:textColor="#F8FAFC"
+                        android:textColorHint="#64748B" />
+
+                    <EditText
+                        android:id="@+id/etPassword"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/bg_terminal"
+                        android:hint="Mot de passe"
+                        android:inputType="textPassword"
+                        android:paddingHorizontal="12dp"
+                        android:textColor="#F8FAFC"
+                        android:textColorHint="#64748B" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnToggleProxy"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginTop="16dp"
-            android:text="DÉMARRER LE SERVEUR PROXY" />
+            android:layout_height="58dp"
+            android:text="DÉMARRER LE SERVEUR PROXY"
+            android:textColor="#06120E"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            app:backgroundTint="#00E676"
+            app:cornerRadius="14dp" />
 
-        <!-- Journaux en temps réel -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
+            android:layout_marginTop="14dp"
             android:gravity="center_vertical"
-            android:paddingTop="16dp">
+            android:orientation="horizontal">
 
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Journaux de connexions en direct"
+                android:text="CONSOLE RÉSEAU EN DIRECT (64 KB BUFFERS • TCP_NODELAY)"
+                android:textColor="#94A3B8"
+                android:textSize="11sp"
                 android:textStyle="bold" />
 
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnClearLogs"
+                style="@style/Widget.Material3.Button.TextButton"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Effacer" />
+                android:layout_height="36dp"
+                android:text="Effacer"
+                android:textColor="#00E5FF"
+                android:textSize="12sp" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tvLogs"
+        <ScrollView
+            android:id="@+id/scrollLogs"
             android:layout_width="match_parent"
-            android:layout_height="260dp"
-            android:background="#1E1E1E"
-            android:textColor="#00E676"
-            android:padding="10dp"
-            android:fontFamily="monospace"
-            android:textSize="12sp"
-            android:scrollbars="vertical"
-            android:text="Prêt à démarrer..." />
+            android:layout_height="220dp"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/bg_terminal"
+            android:padding="12dp">
+
+            <TextView
+                android:id="@+id/tvLogs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:lineSpacingExtra="3dp"
+                android:text="Prêt à démarrer..."
+                android:textColor="#00E676"
+                android:textSize="11.5sp" />
+        </ScrollView>
 
     </LinearLayout>
 </ScrollView>
