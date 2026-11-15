@@ -14,6 +14,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Serveur Proxy HTTP/HTTPS complet avec support :
@@ -29,7 +30,8 @@ class HttpProxyServer(
     private val username: String,
     private val password: String,
     private val onLog: (String) -> Unit,
-    private val bytesTransferred: AtomicLong
+    private val bytesTransferred: AtomicLong,
+    private val activeConnections: AtomicInteger = AtomicInteger(0)
 ) {
     private val running = AtomicBoolean(false)
     private var serverSocket: ServerSocket? = null
@@ -73,7 +75,13 @@ class HttpProxyServer(
     fun isRunning(): Boolean = running.get()
 
     private fun handleClient(client: Socket) {
+        activeConnections.incrementAndGet()
+        try {
         client.use { clientSocket ->
+            clientSocket.tcpNoDelay = true
+            clientSocket.keepAlive = true
+            clientSocket.sendBufferSize = 65536
+            clientSocket.receiveBufferSize = 65536
             clientSocket.soTimeout = 30000
             val clientIn = clientSocket.getInputStream()
             val clientOut = clientSocket.getOutputStream()
@@ -122,6 +130,10 @@ class HttpProxyServer(
                 onLog("[HTTPS] CONNECT $targetHost:$targetPort (${clientSocket.inetAddress.hostAddress})")
 
                 val remoteSocket = Socket()
+                remoteSocket.tcpNoDelay = true
+                remoteSocket.keepAlive = true
+                remoteSocket.sendBufferSize = 65536
+                remoteSocket.receiveBufferSize = 65536
                 try {
                     remoteSocket.connect(InetSocketAddress(targetHost, targetPort), 15000)
                     remoteSocket.soTimeout = 60000
@@ -153,6 +165,10 @@ class HttpProxyServer(
                 onLog("[HTTP] $method $targetHost:$targetPort$relativePath")
 
                 val remoteSocket = Socket()
+                remoteSocket.tcpNoDelay = true
+                remoteSocket.keepAlive = true
+                remoteSocket.sendBufferSize = 65536
+                remoteSocket.receiveBufferSize = 65536
                 try {
                     remoteSocket.connect(InetSocketAddress(targetHost, targetPort), 15000)
                     remoteSocket.soTimeout = 30000
@@ -182,6 +198,9 @@ class HttpProxyServer(
                 }
             }
         }
+        } finally {
+            activeConnections.decrementAndGet()
+    }
     }
 
     private fun verifyBasicAuth(proxyAuthHeader: String?): Boolean {
@@ -218,7 +237,7 @@ class HttpProxyServer(
     }
 
     private fun relay(input: InputStream, output: OutputStream) {
-        val buffer = ByteArray(16384)
+        val buffer = ByteArray(65536)
         try {
             while (running.get()) {
                 val read = input.read(buffer)
