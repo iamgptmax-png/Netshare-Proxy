@@ -1,2 +1,2 @@
-# Conserver les classes du service et des serveurs proxy
+# Keep proxy classes
 -keep class com.netshare.everyproxy.** { *; }

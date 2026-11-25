@@ -10,200 +10,144 @@ import java.net.Socket
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * Serveur Proxy SOCKS5 conforme aux RFC 1928 et RFC 1929 :
- * - Supporte l'accès sans authentification (0x00) ou avec identifiant/mot de passe (0x02)
- * - Supporte les adresses IPv4 (0x01), Noms de domaine (0x03) et IPv6 (0x04)
- * - Commande CONNECT (0x01) pour relayer tout le trafic TCP
- */
 class Socks5ProxyServer(
-    private val bindAddress: String,
-    private val port: Int,
-    private val authEnabled: Boolean,
-    private val username: String,
-    private val password: String,
+    private val config: ProxyConfig,
     private val onLog: (String) -> Unit,
-    private val bytesTransferred: AtomicLong,
-    private val activeConnections: AtomicInteger = AtomicInteger(0)
+    private val onBytes: (Long) -> Unit
 ) {
     private val running = AtomicBoolean(false)
     private var serverSocket: ServerSocket? = null
-    private var executor: ExecutorService? = null
+    private val pool: ExecutorService = Executors.newCachedThreadPool()
 
     fun start() {
-        if (running.getAndSet(true)) return
-        executor = Executors.newCachedThreadPool()
-
-        executor?.execute {
+        if (!running.compareAndSet(false, true)) return
+        pool.execute {
             try {
-                val inetAddr = InetAddress.getByName(bindAddress)
-                serverSocket = ServerSocket(port, 128, inetAddr).apply {
-                    reuseAddress = true
-                }
-                onLog("[SOCKS5] Serveur démarré sur $bindAddress:$port (Auth: ${if (authEnabled) "Oui" else "Non"})")
-
+                val bindAddr = InetAddress.getByName(config.bindHost)
+                serverSocket = ServerSocket(config.socksPort, 128, bindAddr)
+                onLog("[SOCKS5] Serveur démarré sur ${config.bindHost}:${config.socksPort}")
                 while (running.get()) {
-                    val clientSocket = serverSocket?.accept() ?: break
-                    executor?.execute { handleClient(clientSocket) }
+                    val client = serverSocket?.accept() ?: break
+                    pool.execute { handleClient(client) }
                 }
             } catch (e: Exception) {
-                if (running.get()) {
-                    onLog("[SOCKS5] Erreur serveur : ${e.message}")
-                }
-            } finally {
-                stop()
+                if (running.get()) onLog("[SOCKS5][ERREUR] ${e.message}")
             }
         }
     }
 
     fun stop() {
-        if (!running.getAndSet(false)) return
-        try {
-            serverSocket?.close()
-        } catch (_: Exception) {}
-        executor?.shutdownNow()
-        onLog("[SOCKS5] Serveur arrêté.")
+        running.set(false)
+        try { serverSocket?.close() } catch (_: Exception) {}
+        pool.shutdownNow()
     }
 
-    fun isRunning(): Boolean = running.get()
-
     private fun handleClient(client: Socket) {
-        activeConnections.incrementAndGet()
+        val clientIp = client.inetAddress?.hostAddress ?: "inconnu"
+        if (ClientTracker.isBlocked(clientIp)) {
+            try { client.close() } catch (_: Exception) {}
+            return
+        }
+        ClientTracker.onConnect(clientIp)
         try {
-        client.use { clientSocket ->
-            clientSocket.tcpNoDelay = true
-            clientSocket.keepAlive = true
-            clientSocket.sendBufferSize = 65536
-            clientSocket.receiveBufferSize = 65536
-            clientSocket.soTimeout = 30000
-            val input = DataInputStream(clientSocket.getInputStream())
-            val output = clientSocket.getOutputStream()
+            client.tcpNoDelay = true
+            client.keepAlive = true
+            client.soTimeout = 30000
 
-            // 1. Handshake initial SOCKS5
-            val version = input.readByte().toInt()
-            if (version != 5) return
+            val input = DataInputStream(client.getInputStream())
+            val output = client.getOutputStream()
 
+            val ver = input.readUnsignedByte()
+            if (ver != 5) return
             val nMethods = input.readUnsignedByte()
             val methods = ByteArray(nMethods)
             input.readFully(methods)
 
-            if (authEnabled) {
-                if (!methods.contains(0x02.toByte())) {
-                    output.write(byteArrayOf(0x05, 0xFF.toByte()))
-                    output.flush()
-                    return
-                }
-                output.write(byteArrayOf(0x05, 0x02))
+            if (config.authEnabled) {
+                output.write(byteArrayOf(5, 2))
                 output.flush()
-
-                // Sous-négociation RFC 1929 (Username/Password)
-                val authVer = input.readByte().toInt()
-                if (authVer != 1) return
+                input.readUnsignedByte() // auth version
                 val uLen = input.readUnsignedByte()
                 val uBytes = ByteArray(uLen)
                 input.readFully(uBytes)
                 val pLen = input.readUnsignedByte()
                 val pBytes = ByteArray(pLen)
                 input.readFully(pBytes)
-
-                val providedUser = String(uBytes, Charsets.UTF_8)
-                val providedPass = String(pBytes, Charsets.UTF_8)
-
-                if (providedUser != username || providedPass != password) {
-                    output.write(byteArrayOf(0x01, 0x01)) // Échec d'authentification
-                    output.flush()
-                    onLog("[SOCKS5] Échec auth depuis ${clientSocket.inetAddress.hostAddress}")
-                    return
-                }
-                output.write(byteArrayOf(0x01, 0x00)) // Succès
+                val ok = String(uBytes) == config.username && String(pBytes) == config.password
+                output.write(byteArrayOf(1, if (ok) 0 else 1))
                 output.flush()
+                if (!ok) return
             } else {
-                output.write(byteArrayOf(0x05, 0x00))
+                output.write(byteArrayOf(5, 0))
                 output.flush()
             }
 
-            // 2. Lecture de la requête de connexion SOCKS5
-            val reqVer = input.readByte().toInt()
-            if (reqVer != 5) return
-            val cmd = input.readByte().toInt()
-            input.readByte() // RSV (0x00)
-            val atyp = input.readByte().toInt()
+            input.readUnsignedByte() // ver
+            val cmd = input.readUnsignedByte()
+            input.readUnsignedByte() // rsv
+            val atyp = input.readUnsignedByte()
+            if (cmd != 1) return
 
-            if (cmd != 1) { // Seule la commande CONNECT (0x01) est supportée
-                output.write(byteArrayOf(0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
-                output.flush()
-                return
-            }
-
-            val targetHost: String = when (atyp) {
-                1 -> { // IPv4
-                    val addrBytes = ByteArray(4)
-                    input.readFully(addrBytes)
-                    InetAddress.getByAddress(addrBytes).hostAddress ?: return
+            val host = when (atyp) {
+                1 -> {
+                    val b = ByteArray(4)
+                    input.readFully(b)
+                    InetAddress.getByAddress(b).hostAddress ?: return
                 }
-                3 -> { // Nom de domaine
-                    val domainLen = input.readUnsignedByte()
-                    val domainBytes = ByteArray(domainLen)
-                    input.readFully(domainBytes)
-                    String(domainBytes, Charsets.UTF_8)
+                3 -> {
+                    val len = input.readUnsignedByte()
+                    val b = ByteArray(len)
+                    input.readFully(b)
+                    String(b)
                 }
-                4 -> { // IPv6
-                    val addrBytes = ByteArray(16)
-                    input.readFully(addrBytes)
-                    InetAddress.getByAddress(addrBytes).hostAddress ?: return
+                4 -> {
+                    val b = ByteArray(16)
+                    input.readFully(b)
+                    InetAddress.getByAddress(b).hostAddress ?: return
                 }
                 else -> return
             }
+            val port = input.readUnsignedShort()
 
-            val targetPort = input.readUnsignedShort()
-            onLog("[SOCKS5] CONNECT $targetHost:$targetPort (${clientSocket.inetAddress.hostAddress})")
-
-            val remoteSocket = Socket()
-            remoteSocket.tcpNoDelay = true
-            remoteSocket.keepAlive = true
-            remoteSocket.sendBufferSize = 65536
-            remoteSocket.receiveBufferSize = 65536
-            try {
-                remoteSocket.connect(InetSocketAddress(targetHost, targetPort), 15000)
-                remoteSocket.soTimeout = 60000
-
-                // Réponse de succès SOCKS5
-                output.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
+            if (config.adBlockEnabled && ClientTracker.isAdDomain(host)) {
+                output.write(byteArrayOf(5, 2, 0, 1, 0, 0, 0, 0, 0, 0))
                 output.flush()
-
-                val remoteIn = remoteSocket.getInputStream()
-                val remoteOut = remoteSocket.getOutputStream()
-
-                val t1 = Thread { relay(input, remoteOut) }
-                val t2 = Thread { relay(remoteIn, output) }
-                t1.start()
-                t2.start()
-                t1.join()
-                t2.join()
-            } catch (e: Exception) {
-                output.write(byteArrayOf(0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
-                output.flush()
-            } finally {
-                runCatching { remoteSocket.close() }
+                onLog("[BLOQUÉ] SOCKS5 $host ($clientIp)")
+                return
             }
-        }
+
+            val remote = Socket()
+            remote.tcpNoDelay = true
+            remote.keepAlive = true
+            remote.connect(InetSocketAddress(host, port), 15000)
+
+            output.write(byteArrayOf(5, 0, 0, 1, 0, 0, 0, 0, 0, 0))
+            output.flush()
+            onLog("[SOCKS5] $host:$port ($clientIp)")
+
+            val t1 = pool.submit { pipe(input, remote.getOutputStream(), clientIp) }
+            val t2 = pool.submit { pipe(remote.getInputStream(), output, clientIp) }
+            try { t1.get() } catch (_: Exception) {}
+            try { t2.get() } catch (_: Exception) {}
+            try { remote.close() } catch (_: Exception) {}
+        } catch (_: Exception) {
         } finally {
-            activeConnections.decrementAndGet()
+            ClientTracker.onDisconnect(clientIp)
+            try { client.close() } catch (_: Exception) {}
         }
     }
 
-    private fun relay(input: InputStream, output: OutputStream) {
+    private fun pipe(input: InputStream, output: OutputStream, clientIp: String) {
         val buffer = ByteArray(65536)
         try {
-            while (running.get()) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                output.write(buffer, 0, read)
+            while (true) {
+                val n = input.read(buffer)
+                if (n <= 0) break
+                output.write(buffer, 0, n)
                 output.flush()
-                bytesTransferred.addAndGet(read.toLong())
+                onBytes(n.toLong())
+                ClientTracker.onBytes(clientIp, n.toLong())
             }
         } catch (_: Exception) {}
     }

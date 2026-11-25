@@ -2,79 +2,78 @@ package com.netshare.everyproxy
 
 import java.net.Inet4Address
 import java.net.NetworkInterface
-import java.util.Collections
-
-data class NetworkInterfaceInfo(
-    val name: String,
-    val ipAddress: String,
-    val label: String
-) {
-    override fun toString(): String = "$ipAddress ($label - $name)"
-}
 
 object NetworkUtils {
-
-    /**
-     * Détecte toutes les interfaces réseau IPv4 disponibles sur l'appareil :
-     * - 0.0.0.0 (Toutes les interfaces)
-     * - wlan0 / wlan1 / ap0 (Wi-Fi et Point d'accès mobile)
-     * - rndis0 / usb0 / ncm0 (Partage de connexion USB)
-     * - tun0 / ppp0 (Tunnel VPN actif)
-     */
-    fun getAvailableInterfaces(): List<NetworkInterfaceInfo> {
-        val result = mutableListOf<NetworkInterfaceInfo>()
-        result.add(NetworkInterfaceInfo("all", "0.0.0.0", "Toutes les interfaces"))
-
+    fun getLocalIpAddresses(): List<String> {
+        val result = mutableListOf("0.0.0.0 (Toutes les interfaces)")
         try {
-            val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
-            for (nif in interfaces) {
-                if (!nif.isUp) continue
-                val addresses = Collections.list(nif.inetAddresses)
-                for (addr in addresses) {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val nif = interfaces.nextElement()
+                if (!nif.isUp || nif.isLoopback) continue
+                val addrs = nif.inetAddresses
+                while (addrs.hasMoreElements()) {
+                    val addr = addrs.nextElement()
                     if (addr is Inet4Address && !addr.isLoopbackAddress) {
                         val ip = addr.hostAddress ?: continue
-                        val label = classifyInterface(nif.name, ip)
-                        result.add(NetworkInterfaceInfo(nif.name, ip, label))
+                        result.add("$ip (${nif.name})")
                     }
                 }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        result.add(NetworkInterfaceInfo("lo", "127.0.0.1", "Localhost uniquement"))
+        } catch (_: Exception) {}
         return result
     }
 
-    fun getBestShareableIp(selectedIp: String): String {
-        if (selectedIp != "0.0.0.0" && selectedIp != "127.0.0.1") {
-            return selectedIp
+    fun getBestShareableIp(): String {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            var fallback = "192.168.43.1"
+            while (interfaces.hasMoreElements()) {
+                val nif = interfaces.nextElement()
+                if (!nif.isUp || nif.isLoopback) continue
+                val name = nif.name.lowercase()
+                if (name.startsWith("tun") || name.startsWith("wg") || name.startsWith("rmnet")) continue
+                val addrs = nif.inetAddresses
+                while (addrs.hasMoreElements()) {
+                    val addr = addrs.nextElement()
+                    if (addr is Inet4Address && !addr.isLoopbackAddress) {
+                        val ip = addr.hostAddress ?: continue
+                        if (name.contains("wlan") || name.contains("ap") || name.contains("swlan")) {
+                            return ip
+                        }
+                        fallback = ip
+                    }
+                }
+            }
+            return fallback
+        } catch (_: Exception) {
+            return "192.168.43.1"
         }
-        val all = getAvailableInterfaces()
-        val hotspotOrUsb = all.firstOrNull {
-            it.ipAddress != "0.0.0.0" && it.ipAddress != "127.0.0.1" &&
-            (it.label.contains("Point d'accès") || it.label.contains("USB") || it.label.contains("Wi-Fi"))
-        }
-        return hotspotOrUsb?.ipAddress
-            ?: all.firstOrNull { it.ipAddress != "0.0.0.0" && it.ipAddress != "127.0.0.1" }?.ipAddress
-            ?: "192.168.43.1"
     }
 
-    private fun classifyInterface(name: String, ip: String): String {
-        val lower = name.lowercase()
-        return when {
-            lower.startsWith("ap") || lower.contains("wlan1") || ip.startsWith("192.168.43.") || ip.startsWith("192.168.49.") ->
-                "Point d'accès / Wi-Fi Direct"
-            lower.startsWith("wlan") ->
-                "Wi-Fi local"
-            lower.startsWith("rndis") || lower.startsWith("usb") || lower.startsWith("ncm") || ip.startsWith("192.168.42.") ->
-                "Partage USB"
-            lower.startsWith("tun") || lower.startsWith("tap") || lower.startsWith("ppp") || lower.startsWith("wg") ->
-                "Interface VPN"
-            lower.startsWith("rmnet") || lower.startsWith("ccmni") ->
-                "Données mobiles"
-            else ->
-                "Réseau local"
-        }
+    fun getActiveVpnInterface(): String? {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val nif = interfaces.nextElement()
+                if (!nif.isUp || nif.isLoopback) continue
+                val n = nif.name.lowercase()
+                if (n.startsWith("tun") || n.startsWith("wg") || n.startsWith("ppp")) {
+                    return nif.name
+                }
+            }
+        } catch (_: Exception) {}
+        return null
     }
+
+    fun formatBytes(bytes: Long): String {
+        if (bytes < 1024) return "$bytes o"
+        val kb = bytes / 1024.0
+        if (kb < 1024) return String.format("%.1f Ko", kb)
+        val mb = kb / 1024.0
+        if (mb < 1024) return String.format("%.2f Mo", mb)
+        return String.format("%.2f Go", mb / 1024.0)
+    }
+
+    fun formatSpeed(bytesPerSec: Long): String = "${formatBytes(bytesPerSec)}/s"
 }

@@ -1,9 +1,8 @@
 package com.netshare.everyproxy
 
 import android.util.Base64
-import java.io.BufferedReader
+import java.io.BufferedInputStream
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -13,238 +12,209 @@ import java.net.URI
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * Serveur Proxy HTTP/HTTPS complet avec support :
- * - Tunneling HTTPS via la méthode CONNECT
- * - Requêtes HTTP standard (GET, POST, PUT, DELETE, HEAD, OPTIONS)
- * - Authentification Basic (Proxy-Authorization) optionnelle
- * - Compteurs d'octets échangés en temps réel
- */
 class HttpProxyServer(
-    private val bindAddress: String,
-    private val port: Int,
-    private val authEnabled: Boolean,
-    private val username: String,
-    private val password: String,
+    private val config: ProxyConfig,
     private val onLog: (String) -> Unit,
-    private val bytesTransferred: AtomicLong,
-    private val activeConnections: AtomicInteger = AtomicInteger(0)
+    private val onBytes: (Long) -> Unit
 ) {
     private val running = AtomicBoolean(false)
     private var serverSocket: ServerSocket? = null
-    private var executor: ExecutorService? = null
+    private val pool: ExecutorService = Executors.newCachedThreadPool()
 
     fun start() {
-        if (running.getAndSet(true)) return
-        executor = Executors.newCachedThreadPool()
-
-        executor?.execute {
+        if (!running.compareAndSet(false, true)) return
+        pool.execute {
             try {
-                val inetAddr = InetAddress.getByName(bindAddress)
-                serverSocket = ServerSocket(port, 128, inetAddr).apply {
-                    reuseAddress = true
-                }
-                onLog("[HTTP] Serveur démarré sur $bindAddress:$port (Auth: ${if (authEnabled) "Oui" else "Non"})")
-
+                val bindAddr = InetAddress.getByName(config.bindHost)
+                serverSocket = ServerSocket(config.httpPort, 128, bindAddr)
+                onLog("[HTTP] Serveur démarré sur ${config.bindHost}:${config.httpPort} (PAC actif)")
                 while (running.get()) {
-                    val clientSocket = serverSocket?.accept() ?: break
-                    executor?.execute { handleClient(clientSocket) }
+                    val client = serverSocket?.accept() ?: break
+                    pool.execute { handleClient(client) }
                 }
             } catch (e: Exception) {
-                if (running.get()) {
-                    onLog("[HTTP] Erreur serveur : ${e.message}")
-                }
-            } finally {
-                stop()
+                if (running.get()) onLog("[HTTP][ERREUR] ${e.message}")
             }
         }
     }
 
     fun stop() {
-        if (!running.getAndSet(false)) return
-        try {
-            serverSocket?.close()
-        } catch (_: Exception) {}
-        executor?.shutdownNow()
-        onLog("[HTTP] Serveur arrêté.")
+        running.set(false)
+        try { serverSocket?.close() } catch (_: Exception) {}
+        pool.shutdownNow()
     }
 
-    fun isRunning(): Boolean = running.get()
-
     private fun handleClient(client: Socket) {
-        activeConnections.incrementAndGet()
+        val clientIp = client.inetAddress?.hostAddress ?: "inconnu"
+        if (ClientTracker.isBlocked(clientIp)) {
+            try { client.close() } catch (_: Exception) {}
+            return
+        }
+        ClientTracker.onConnect(clientIp)
         try {
-        client.use { clientSocket ->
-            clientSocket.tcpNoDelay = true
-            clientSocket.keepAlive = true
-            clientSocket.sendBufferSize = 65536
-            clientSocket.receiveBufferSize = 65536
-            clientSocket.soTimeout = 30000
-            val clientIn = clientSocket.getInputStream()
-            val clientOut = clientSocket.getOutputStream()
+            client.tcpNoDelay = true
+            client.keepAlive = true
+            client.soTimeout = 30000
 
-            val reader = BufferedReader(InputStreamReader(clientIn, Charsets.ISO_8859_1))
-            val requestLine = reader.readLine() ?: return
-            if (requestLine.isBlank()) return
+            val input = BufferedInputStream(client.getInputStream(), 65536)
+            val output = client.getOutputStream()
 
-            val parts = requestLine.split(" ")
+            val headerBytes = readHeaders(input) ?: return
+            val headerText = String(headerBytes, Charsets.ISO_8859_1)
+            val lines = headerText.split("
+")
+            if (lines.isEmpty()) return
+
+            val parts = lines[0].split(" ")
             if (parts.size < 3) return
-            val method = parts[0].uppercase()
-            val rawUrl = parts[1]
-            val httpVersion = parts[2]
+            val method = parts[0]
+            val target = parts[1]
 
-            val headers = mutableListOf<String>()
-            var hostHeader: String? = null
-            var proxyAuthHeader: String? = null
+            // Serve /proxy.pac directly for zero-config clients
+            if (method.equals("GET", true) && (target == "/proxy.pac" || target.endsWith("/proxy.pac"))) {
+                val lanIp = NetworkUtils.getBestShareableIp()
+                val pacBody = "function FindProxyForURL(url, host) { return "PROXY $lanIp:${config.httpPort}; DIRECT"; }
+"
+                val resp = "HTTP/1.1 200 OK
+" +
+                    "Content-Type: application/x-ns-proxy-autoconfig
+" +
+                    "Content-Length: ${pacBody.toByteArray().size}
+" +
+                    "Connection: close
 
-            while (true) {
-                val line = reader.readLine() ?: break
-                if (line.isEmpty()) break
-                headers.add(line)
-                if (line.startsWith("Host:", ignoreCase = true)) {
-                    hostHeader = line.substring(5).trim()
-                } else if (line.startsWith("Proxy-Authorization:", ignoreCase = true)) {
-                    proxyAuthHeader = line.substring(20).trim()
-                }
-            }
-
-            if (authEnabled && !verifyBasicAuth(proxyAuthHeader)) {
-                val response = "HTTP/1.1 407 Proxy Authentication Required\r\n" +
-                        "Proxy-Authenticate: Basic realm=\"NetShareProxy\"\r\n" +
-                        "Connection: close\r\n\r\n"
-                clientOut.write(response.toByteArray(Charsets.ISO_8859_1))
-                clientOut.flush()
-                onLog("[HTTP] Accès refusé (407) depuis ${clientSocket.inetAddress.hostAddress}")
+" + pacBody
+                output.write(resp.toByteArray(Charsets.UTF_8))
+                output.flush()
+                onLog("[HTTP] PAC servi à $clientIp")
                 return
             }
 
-            if (method == "CONNECT") {
-                // Tunneling HTTPS (CONNECT host:port HTTP/1.1)
-                val hostPort = rawUrl.split(":")
-                val targetHost = hostPort[0]
-                val targetPort = if (hostPort.size > 1) hostPort[1].toIntOrNull() ?: 443 else 443
+            // Auth check
+            if (config.authEnabled) {
+                val authLine = lines.firstOrNull { it.startsWith("Proxy-Authorization:", true) }
+                if (!checkAuth(authLine)) {
+                    val resp = "HTTP/1.1 407 Proxy Authentication Required
+" +
+                        "Proxy-Authenticate: Basic realm="NetShareProxy"
+" +
+                        "Connection: close
 
-                onLog("[HTTPS] CONNECT $targetHost:$targetPort (${clientSocket.inetAddress.hostAddress})")
-
-                val remoteSocket = Socket()
-                remoteSocket.tcpNoDelay = true
-                remoteSocket.keepAlive = true
-                remoteSocket.sendBufferSize = 65536
-                remoteSocket.receiveBufferSize = 65536
-                try {
-                    remoteSocket.connect(InetSocketAddress(targetHost, targetPort), 15000)
-                    remoteSocket.soTimeout = 60000
-
-                    val established = "HTTP/1.1 200 Connection Established\r\n\r\n"
-                    clientOut.write(established.toByteArray(Charsets.ISO_8859_1))
-                    clientOut.flush()
-
-                    val remoteIn = remoteSocket.getInputStream()
-                    val remoteOut = remoteSocket.getOutputStream()
-
-                    val t1 = Thread { relay(clientIn, remoteOut) }
-                    val t2 = Thread { relay(remoteIn, clientOut) }
-                    t1.start()
-                    t2.start()
-                    t1.join()
-                    t2.join()
-                } catch (e: Exception) {
-                    val err = "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n"
-                    runCatching { clientOut.write(err.toByteArray()) }
-                } finally {
-                    runCatching { remoteSocket.close() }
-                }
-            } else {
-                // Requête HTTP standard
-                val (targetHost, targetPort, relativePath) = resolveHttpTarget(rawUrl, hostHeader)
-                if (targetHost.isEmpty()) return
-
-                onLog("[HTTP] $method $targetHost:$targetPort$relativePath")
-
-                val remoteSocket = Socket()
-                remoteSocket.tcpNoDelay = true
-                remoteSocket.keepAlive = true
-                remoteSocket.sendBufferSize = 65536
-                remoteSocket.receiveBufferSize = 65536
-                try {
-                    remoteSocket.connect(InetSocketAddress(targetHost, targetPort), 15000)
-                    remoteSocket.soTimeout = 30000
-                    val remoteIn = remoteSocket.getInputStream()
-                    val remoteOut = remoteSocket.getOutputStream()
-
-                    val requestBuilder = StringBuilder()
-                    requestBuilder.append("$method $relativePath $httpVersion\r\n")
-                    for (header in headers) {
-                        if (!header.startsWith("Proxy-", ignoreCase = true)) {
-                            requestBuilder.append(header).append("\r\n")
-                        }
-                    }
-                    requestBuilder.append("Connection: close\r\n\r\n")
-
-                    val headerBytes = requestBuilder.toString().toByteArray(Charsets.ISO_8859_1)
-                    remoteOut.write(headerBytes)
-                    remoteOut.flush()
-                    bytesTransferred.addAndGet(headerBytes.size.toLong())
-
-                    relay(remoteIn, clientOut)
-                } catch (e: Exception) {
-                    val err = "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n"
-                    runCatching { clientOut.write(err.toByteArray()) }
-                } finally {
-                    runCatching { remoteSocket.close() }
+"
+                    output.write(resp.toByteArray())
+                    output.flush()
+                    return
                 }
             }
-        }
-        } finally {
-            activeConnections.decrementAndGet()
-    }
-    }
 
-    private fun verifyBasicAuth(proxyAuthHeader: String?): Boolean {
-        if (proxyAuthHeader == null || !proxyAuthHeader.startsWith("Basic ", ignoreCase = true)) {
-            return false
-        }
-        return try {
-            val base64Part = proxyAuthHeader.substring(6).trim()
-            val decoded = String(Base64.decode(base64Part, Base64.DEFAULT), Charsets.UTF_8)
-            decoded == "$username:$password"
-        } catch (e: Exception) {
-            false
-        }
-    }
+            if (method.equals("CONNECT", true)) {
+                val hostPort = target.split(":")
+                val host = hostPort[0]
+                val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
 
-    private fun resolveHttpTarget(rawUrl: String, hostHeader: String?): Triple<String, Int, String> {
-        return try {
-            if (rawUrl.startsWith("http://", ignoreCase = true)) {
-                val uri = URI(rawUrl)
-                val host = uri.host ?: ""
+                if (config.adBlockEnabled && ClientTracker.isAdDomain(host)) {
+                    output.write("HTTP/1.1 403 Forbidden
+Connection: close
+
+".toByteArray())
+                    output.flush()
+                    onLog("[BLOQUÉ] $host ($clientIp)")
+                    return
+                }
+
+                val remote = Socket()
+                remote.tcpNoDelay = true
+                remote.keepAlive = true
+                remote.connect(InetSocketAddress(host, port), 15000)
+
+                output.write("HTTP/1.1 200 Connection Established
+
+".toByteArray())
+                output.flush()
+                onLog("[HTTPS] CONNECT $host:$port ($clientIp)")
+
+                relayBidirectional(client, input, remote, clientIp)
+            } else {
+                val uri = URI(target)
+                val host = uri.host ?: lines.firstOrNull { it.startsWith("Host:", true) }
+                    ?.substringAfter(":")?.trim()?.substringBefore(":") ?: return
                 val port = if (uri.port != -1) uri.port else 80
-                val path = (uri.rawPath?.ifEmpty { "/" } ?: "/") +
-                        (if (uri.rawQuery != null) "?${uri.rawQuery}" else "")
-                Triple(host, port, path)
-            } else {
-                val hostParts = (hostHeader ?: "").split(":")
-                val host = hostParts[0]
-                val port = if (hostParts.size > 1) hostParts[1].toIntOrNull() ?: 80 else 80
-                Triple(host, port, rawUrl.ifEmpty { "/" })
+
+                if (config.adBlockEnabled && ClientTracker.isAdDomain(host)) {
+                    output.write("HTTP/1.1 403 Forbidden
+Connection: close
+
+".toByteArray())
+                    output.flush()
+                    onLog("[BLOQUÉ] $host ($clientIp)")
+                    return
+                }
+
+                val remote = Socket()
+                remote.tcpNoDelay = true
+                remote.keepAlive = true
+                remote.connect(InetSocketAddress(host, port), 15000)
+
+                val remoteOut = remote.getOutputStream()
+                remoteOut.write(headerBytes)
+                remoteOut.flush()
+                onLog("[HTTP] $method $host:$port ($clientIp)")
+
+                relayBidirectional(client, input, remote, clientIp)
             }
-        } catch (e: Exception) {
-            Triple("", 80, "/")
+        } catch (_: Exception) {
+        } finally {
+            ClientTracker.onDisconnect(clientIp)
+            try { client.close() } catch (_: Exception) {}
         }
     }
 
-    private fun relay(input: InputStream, output: OutputStream) {
+    private fun checkAuth(authLine: String?): Boolean {
+        if (authLine == null) return false
+        val token = authLine.substringAfter("Basic ", "").trim()
+        val expected = Base64.encodeToString("${config.username}:${config.password}".toByteArray(), Base64.NO_WRAP)
+        return token == expected
+    }
+
+    private fun readHeaders(input: InputStream): ByteArray? {
+        val buf = java.io.ByteArrayOutputStream()
+        var state = 0
+        while (true) {
+            val b = input.read()
+            if (b == -1) return null
+            buf.write(b)
+            state = when {
+                state == 0 && b == ''.code -> 1
+                state == 1 && b == '
+'.code -> 2
+                state == 2 && b == ''.code -> 3
+                state == 3 && b == '
+'.code -> return buf.toByteArray()
+                else -> 0
+            }
+            if (buf.size() > 65536) return null
+        }
+    }
+
+    private fun relayBidirectional(client: Socket, clientIn: InputStream, remote: Socket, clientIp: String) {
+        val t1 = pool.submit { pipe(clientIn, remote.getOutputStream(), clientIp) }
+        val t2 = pool.submit { pipe(remote.getInputStream(), client.getOutputStream(), clientIp) }
+        try { t1.get() } catch (_: Exception) {}
+        try { t2.get() } catch (_: Exception) {}
+        try { remote.close() } catch (_: Exception) {}
+    }
+
+    private fun pipe(input: InputStream, output: OutputStream, clientIp: String) {
         val buffer = ByteArray(65536)
         try {
-            while (running.get()) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                output.write(buffer, 0, read)
+            while (true) {
+                val n = input.read(buffer)
+                if (n <= 0) break
+                output.write(buffer, 0, n)
                 output.flush()
-                bytesTransferred.addAndGet(read.toLong())
+                onBytes(n.toLong())
+                ClientTracker.onBytes(clientIp, n.toLong())
             }
         } catch (_: Exception) {}
     }

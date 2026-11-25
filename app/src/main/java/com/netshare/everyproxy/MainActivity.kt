@@ -3,323 +3,369 @@ package com.netshare.everyproxy
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.content.pm.PackageManager
-import android.content.res.ColorStateList
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
-import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
-import android.widget.ArrayAdapter
-import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
+import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.netshare.everyproxy.databinding.ActivityMainBinding
-import java.util.Locale
+import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityMainBinding
-    private var proxyService: ProxyService? = null
-    private var isBound = false
-    private var interfaces = listOf<NetworkInterfaceInfo>()
-    private val uiHandler = Handler(Looper.getMainLooper())
-    private var lastBytesTotal = 0L
+    private lateinit var tvVpnStatus: TextView
+    private lateinit var tvStatusBadge: TextView
+    private lateinit var tabDashboard: View
+    private lateinit var tabDevices: View
+    private lateinit var tabNetwork: View
+    private lateinit var bottomNav: BottomNavigationView
 
-    private val statsRunnable = object : Runnable {
+    // Dashboard views
+    private lateinit var btnPower: LinearLayout
+    private lateinit var tvPowerLabel: TextView
+    private lateinit var tvPowerSub: TextView
+    private lateinit var tvHeroAddress: TextView
+    private lateinit var tvHeroProtocols: TextView
+    private lateinit var tvSpeed: TextView
+    private lateinit var tvTotalData: TextView
+    private lateinit var tvActiveClients: TextView
+    private lateinit var sparklineView: SparklineView
+
+    // Devices & QR views
+    private lateinit var ivQrCode: ImageView
+    private lateinit var tvPacUrl: TextView
+    private lateinit var clientsContainer: LinearLayout
+    private lateinit var tvNoClients: TextView
+
+    // Network & Logs views
+    private lateinit var spinnerIp: Spinner
+    private lateinit var switchHttp: MaterialSwitch
+    private lateinit var etHttpPort: EditText
+    private lateinit var switchSocks: MaterialSwitch
+    private lateinit var etSocksPort: EditText
+    private lateinit var switchAdBlock: MaterialSwitch
+    private lateinit var switchAuth: MaterialSwitch
+    private lateinit var layoutAuthFields: LinearLayout
+    private lateinit var etUsername: EditText
+    private lateinit var etPassword: EditText
+    private lateinit var tvLogs: TextView
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var ipOptions = listOf("0.0.0.0 (Toutes les interfaces)")
+
+    private val uiUpdater = object : Runnable {
         override fun run() {
-            val totalBytes = proxyService?.bytesTransferred?.get() ?: 0L
-            val activeConns = proxyService?.activeConnections?.get() ?: 0
-            val deltaBytes = (totalBytes - lastBytesTotal).coerceAtLeast(0L)
-            lastBytesTotal = totalBytes
-
-            binding.tvTrafficStats.text = formatBytes(totalBytes)
-            binding.tvLiveSpeed.text = "${formatBytes(deltaBytes)}/s"
-            binding.tvActiveConns.text = activeConns.toString()
-
-            uiHandler.postDelayed(this, 1000L)
-        }
-    }
-
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as ProxyService.LocalBinder
-            proxyService = binder.getService()
-            isBound = true
-            lastBytesTotal = proxyService?.bytesTransferred?.get() ?: 0L
-
-            proxyService?.onLogListener = { logLines ->
-                runOnUiThread {
-                    binding.tvLogs.text = if (logLines.isEmpty()) {
-                        "En attente de connexions..."
-                    } else {
-                        logLines.joinToString("\n")
-                    }
-                    binding.scrollLogs.post {
-                        binding.scrollLogs.fullScroll(View.FOCUS_DOWN)
-                    }
-                }
-            }
-            proxyService?.onStateChangedListener = { httpRunning, socksRunning ->
-                runOnUiThread {
-                    updateStatusUi(httpRunning, socksRunning)
-                }
-            }
-
-            updateStatusUi(
-                proxyService?.isHttpRunning() == true,
-                proxyService?.isSocksRunning() == true
-            )
-            val currentLogs = proxyService?.getLogs() ?: emptyList()
-            binding.tvLogs.text = if (currentLogs.isEmpty()) "Prêt à démarrer..." else currentLogs.joinToString("\n")
-        }
-
-        override fun onServiceDisconnected(name: ComponentName?) {
-            proxyService = null
-            isBound = false
+            refreshUiState()
+            handler.postDelayed(this, 1000)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        setContentView(R.layout.activity_main)
 
-        window.statusBarColor = Color.parseColor("#0B0F19")
-        window.navigationBarColor = Color.parseColor("#0B0F19")
+        bindViews()
+        loadPrefs()
+        setupIpSpinner()
+        setupListeners()
+        requestNotifPermissionIfNeeded()
+        updateQrAndPac()
+    }
 
-        requestNotificationPermissionIfNeeded()
-        loadSavedPreferences()
-        refreshNetworkInterfaces()
+    override fun onResume() {
+        super.onResume()
+        handler.post(uiUpdater)
+    }
 
-        binding.switchAuth.setOnCheckedChangeListener { _, isChecked ->
-            binding.layoutAuthFields.visibility = if (isChecked) View.VISIBLE else View.GONE
+    override fun onPause() {
+        super.onPause()
+        handler.removeCallbacks(uiUpdater)
+    }
+
+    private fun bindViews() {
+        tvVpnStatus = findViewById(R.id.tvVpnStatus)
+        tvStatusBadge = findViewById(R.id.tvStatusBadge)
+        tabDashboard = findViewById(R.id.tabDashboard)
+        tabDevices = findViewById(R.id.tabDevices)
+        tabNetwork = findViewById(R.id.tabNetwork)
+        bottomNav = findViewById(R.id.bottomNav)
+
+        btnPower = findViewById(R.id.btnPower)
+        tvPowerLabel = findViewById(R.id.tvPowerLabel)
+        tvPowerSub = findViewById(R.id.tvPowerSub)
+        tvHeroAddress = findViewById(R.id.tvHeroAddress)
+        tvHeroProtocols = findViewById(R.id.tvHeroProtocols)
+        tvSpeed = findViewById(R.id.tvSpeed)
+        tvTotalData = findViewById(R.id.tvTotalData)
+        tvActiveClients = findViewById(R.id.tvActiveClients)
+        sparklineView = findViewById(R.id.sparklineView)
+
+        ivQrCode = findViewById(R.id.ivQrCode)
+        tvPacUrl = findViewById(R.id.tvPacUrl)
+        clientsContainer = findViewById(R.id.clientsContainer)
+        tvNoClients = findViewById(R.id.tvNoClients)
+
+        spinnerIp = findViewById(R.id.spinnerIp)
+        switchHttp = findViewById(R.id.switchHttp)
+        etHttpPort = findViewById(R.id.etHttpPort)
+        switchSocks = findViewById(R.id.switchSocks)
+        etSocksPort = findViewById(R.id.etSocksPort)
+        switchAdBlock = findViewById(R.id.switchAdBlock)
+        switchAuth = findViewById(R.id.switchAuth)
+        layoutAuthFields = findViewById(R.id.layoutAuthFields)
+        etUsername = findViewById(R.id.etUsername)
+        etPassword = findViewById(R.id.etPassword)
+        tvLogs = findViewById(R.id.tvLogs)
+    }
+
+    private fun setupListeners() {
+        bottomNav.setOnItemSelectedListener { item ->
+            tabDashboard.visibility = if (item.itemId == R.id.nav_dashboard) View.VISIBLE else View.GONE
+            tabDevices.visibility = if (item.itemId == R.id.nav_devices) View.VISIBLE else View.GONE
+            tabNetwork.visibility = if (item.itemId == R.id.nav_network) View.VISIBLE else View.GONE
+            if (item.itemId == R.id.nav_devices) updateQrAndPac()
+            true
         }
 
-        binding.btnRefreshIps.setOnClickListener {
-            refreshNetworkInterfaces()
-            Toast.makeText(this, "Interfaces réseau actualisées", Toast.LENGTH_SHORT).show()
-        }
-
-        binding.btnCopyEndpoint.setOnClickListener {
-            copyActiveEndpointToClipboard()
-        }
-
-        binding.btnGuideClient.setOnClickListener {
-            showClientSetupDialog()
-        }
-
-        binding.btnBatteryOpt.setOnClickListener {
-            requestBatteryOptimizationExemption()
-        }
-
-        binding.btnToggleProxy.setOnClickListener {
-            val running = (proxyService?.isHttpRunning() == true) || (proxyService?.isSocksRunning() == true)
-            if (running) {
-                proxyService?.stopAllProxies()
+        btnPower.setOnClickListener {
+            savePrefs()
+            val intent = Intent(this, ProxyService::class.java)
+            if (ProxyService.isRunning) {
+                intent.action = ProxyService.ACTION_STOP
+                startService(intent)
             } else {
-                savePreferences()
-                startSelectedProxies()
-            }
-        }
-
-        binding.btnClearLogs.setOnClickListener {
-            proxyService?.clearLogs()
-        }
-
-        Intent(this, ProxyService::class.java).also { intent ->
-            startService(intent)
-            bindService(intent, connection, Context.BIND_AUTO_CREATE)
-        }
-        uiHandler.post(statsRunnable)
-    }
-
-    private fun refreshNetworkInterfaces() {
-        interfaces = NetworkUtils.getAvailableInterfaces()
-        val adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            interfaces
-        )
-        binding.spinnerInterfaces.adapter = adapter
-        updateEndpointBanner()
-    }
-
-    private fun getSelectedShareIp(): String {
-        val selectedInterface = interfaces.getOrNull(binding.spinnerInterfaces.selectedItemPosition)
-        val rawIp = selectedInterface?.ipAddress ?: "0.0.0.0"
-        return NetworkUtils.getBestShareableIp(rawIp)
-    }
-
-    private fun updateEndpointBanner() {
-        val shareIp = getSelectedShareIp()
-        val httpPort = binding.etHttpPort.text.toString().toIntOrNull() ?: 8080
-        val socksPort = binding.etSocksPort.text.toString().toIntOrNull() ?: 1080
-        binding.tvShareEndpoint.text = "HTTP $shareIp:$httpPort  •  SOCKS5 $shareIp:$socksPort"
-    }
-
-    private fun copyActiveEndpointToClipboard() {
-        val shareIp = getSelectedShareIp()
-        val httpPort = binding.etHttpPort.text.toString().toIntOrNull() ?: 8080
-        val socksPort = binding.etSocksPort.text.toString().toIntOrNull() ?: 1080
-        val clipText = "Proxy HTTP: $shareIp:$httpPort | SOCKS5: $shareIp:$socksPort"
-
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("NetShare Proxy", clipText))
-        Toast.makeText(this, "Copié : $clipText", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun showClientSetupDialog() {
-        val shareIp = getSelectedShareIp()
-        val httpPort = binding.etHttpPort.text.toString().toIntOrNull() ?: 8080
-        val socksPort = binding.etSocksPort.text.toString().toIntOrNull() ?: 1080
-
-        val message = "1. Activez votre VPN et votre Point d'accès Wi-Fi (ou Partage USB) sur ce téléphone.\n" +
-            "2. Connectez votre autre appareil (PC, téléphone, console) au Wi-Fi de ce téléphone.\n" +
-            "3. Dans les options Wi-Fi de l'appareil client, choisissez Proxy -> Manuel :\n\n" +
-            "• Hôte / Adresse IP : " + shareIp + "\n" +
-            "• Port HTTP/HTTPS : " + httpPort + "\n" +
-            "• Port SOCKS5 : " + socksPort
-
-        AlertDialog.Builder(this)
-            .setTitle("Configuration de l'appareil client")
-            .setMessage(message)
-            .setPositiveButton("Copier l'IP ($shareIp)") { _, _ ->
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("IP Proxy", shareIp))
-                Toast.makeText(this, "IP $shareIp copiée !", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("Fermer", null)
-            .show()
-    }
-
-    private fun requestBatteryOptimizationExemption() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                runCatching {
-                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = Uri.parse("package:$packageName")
-                    }
-                    startActivity(intent)
-                }.onFailure {
-                    Toast.makeText(this, "Ouvrez les paramètres de batterie pour désactiver la mise en veille.", Toast.LENGTH_LONG).show()
+                intent.action = ProxyService.ACTION_START
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
                 }
-            } else {
-                Toast.makeText(this, "Mode haute performance actif (Batterie déjà non restreinte)", Toast.LENGTH_SHORT).show()
             }
+            handler.postDelayed({ refreshUiState() }, 250)
+        }
+
+        findViewById<MaterialButton>(R.id.btnCopyProxy).setOnClickListener {
+            val ip = NetworkUtils.getBestShareableIp()
+            val port = etHttpPort.text.toString().toIntOrNull() ?: 8080
+            copyToClipboard("Proxy", "$ip:$port")
+        }
+
+        findViewById<MaterialButton>(R.id.btnCopyPac).setOnClickListener {
+            copyToClipboard("PAC URL", tvPacUrl.text.toString())
+        }
+
+        findViewById<MaterialButton>(R.id.btnBatteryBoost).setOnClickListener {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            } catch (_: Exception) {
+                Toast.makeText(this, "Ouvrez les paramètres batterie manuellement", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        findViewById<MaterialButton>(R.id.btnRefreshIp).setOnClickListener {
+            setupIpSpinner()
+            updateQrAndPac()
+            Toast.makeText(this, "Interfaces actualisées", Toast.LENGTH_SHORT).show()
+        }
+
+        switchAuth.setOnCheckedChangeListener { _, isChecked ->
+            layoutAuthFields.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        findViewById<MaterialButton>(R.id.btnClearLogs).setOnClickListener {
+            ProxyService.logs.clear()
+            tvLogs.text = "[NetShare v3.0.0] Journaux effacés.
+"
+        }
+
+        findViewById<MaterialButton>(R.id.btnShareLogs).setOnClickListener {
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "Logs NetShare Proxy Pro v3.0.0")
+                putExtra(Intent.EXTRA_TEXT, ProxyService.logs.joinToString("
+"))
+            }
+            startActivity(Intent.createChooser(shareIntent, "Exporter les logs"))
         }
     }
 
-    private fun loadSavedPreferences() {
-        val prefs = getSharedPreferences("netshare_prefs", Context.MODE_PRIVATE)
-        binding.switchHttp.isChecked = prefs.getBoolean("http_enabled", true)
-        binding.etHttpPort.setText(prefs.getInt("http_port", 8080).toString())
-        binding.switchSocks.isChecked = prefs.getBoolean("socks_enabled", true)
-        binding.etSocksPort.setText(prefs.getInt("socks_port", 1080).toString())
-        val auth = prefs.getBoolean("auth_enabled", false)
-        binding.switchAuth.isChecked = auth
-        binding.layoutAuthFields.visibility = if (auth) View.VISIBLE else View.GONE
-        binding.etUsername.setText(prefs.getString("username", ""))
-        binding.etPassword.setText(prefs.getString("password", ""))
+    private fun setupIpSpinner() {
+        ipOptions = NetworkUtils.getLocalIpAddresses()
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, ipOptions)
+        spinnerIp.adapter = adapter
     }
 
-    private fun savePreferences() {
-        val prefs = getSharedPreferences("netshare_prefs", Context.MODE_PRIVATE)
-        prefs.edit()
-            .putBoolean("http_enabled", binding.switchHttp.isChecked)
-            .putInt("http_port", binding.etHttpPort.text.toString().toIntOrNull() ?: 8080)
-            .putBoolean("socks_enabled", binding.switchSocks.isChecked)
-            .putInt("socks_port", binding.etSocksPort.text.toString().toIntOrNull() ?: 1080)
-            .putBoolean("auth_enabled", binding.switchAuth.isChecked)
-            .putString("username", binding.etUsername.text.toString().trim())
-            .putString("password", binding.etPassword.text.toString())
+    private fun refreshUiState() {
+        val running = ProxyService.isRunning
+        val lanIp = NetworkUtils.getBestShareableIp()
+        val httpPort = etHttpPort.text.toString().toIntOrNull() ?: 8080
+        val socksPort = etSocksPort.text.toString().toIntOrNull() ?: 1080
+        val vpn = NetworkUtils.getActiveVpnInterface()
+
+        tvVpnStatus.text = if (vpn != null) "v3.0.0 • VPN actif ($vpn)" else "v3.0.0 • Aucun tunnel VPN détecté"
+        tvStatusBadge.text = if (running) "EN LIGNE" else "ARRÊTÉ"
+        tvStatusBadge.setBackgroundResource(if (running) R.drawable.bg_pill_on else R.drawable.bg_pill_off)
+        tvStatusBadge.setTextColor(Color.parseColor(if (running) "#6EE7B7" else "#FDA4AF"))
+
+        btnPower.setBackgroundResource(if (running) R.drawable.bg_power_on else R.drawable.bg_power_off)
+        tvPowerLabel.text = if (running) "ACTIF" else "DÉMARRER"
+        tvPowerSub.text = if (running) "Appuyer pour arrêter" else "Appuyer pour lancer"
+
+        tvHeroAddress.text = "$lanIp : $httpPort"
+        tvHeroProtocols.text = "HTTP :$httpPort • SOCKS5 :$socksPort"
+
+        tvSpeed.text = NetworkUtils.formatSpeed(ProxyService.currentSpeedBps)
+        tvTotalData.text = NetworkUtils.formatBytes(ProxyService.totalBytes.get())
+        tvActiveClients.text = "${ClientTracker.totalClientsCount()}"
+
+        sparklineView.setSamples(ProxyService.speedHistory)
+
+        if (tabNetwork.visibility == View.VISIBLE) {
+            tvLogs.text = ProxyService.logs.takeLast(60).joinToString("
+")
+        }
+
+        if (tabDevices.visibility == View.VISIBLE) {
+            refreshClientsList()
+        }
+    }
+
+    private fun refreshClientsList() {
+        clientsContainer.removeAllViews()
+        val list = ClientTracker.clients.values.sortedByDescending { it.lastSeenMs }
+        tvNoClients.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
+
+        for (c in list) {
+            val blocked = ClientTracker.isBlocked(c.ip)
+            val card = MaterialCardView(this).apply {
+                setCardBackgroundColor(Color.parseColor("#111A2E"))
+                radius = 32f
+                strokeColor = Color.parseColor(if (blocked) "#F43F5E" else "#1E293B")
+                strokeWidth = 2
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.bottomMargin = 16
+                layoutParams = lp
+            }
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(32, 24, 32, 24)
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val tvIp = TextView(this).apply {
+                text = c.ip
+                setTextColor(Color.parseColor("#F8FAFC"))
+                textSize = 14f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+            val tvMeta = TextView(this).apply {
+                text = "${NetworkUtils.formatBytes(c.bytes.get())} • ${c.activeSockets.get()} sockets"
+                setTextColor(Color.parseColor("#94A3B8"))
+                textSize = 12f
+            }
+            info.addView(tvIp)
+            info.addView(tvMeta)
+
+            val btnBlock = MaterialButton(this).apply {
+                text = if (blocked) "Débloquer" else "Bloquer"
+                textSize = 11f
+                setOnClickListener {
+                    ClientTracker.toggleBlock(c.ip)
+                    refreshClientsList()
+                }
+            }
+
+            row.addView(info)
+            row.addView(btnBlock)
+            card.addView(row)
+            clientsContainer.addView(card)
+        }
+    }
+
+    private fun updateQrAndPac() {
+        val lanIp = NetworkUtils.getBestShareableIp()
+        val httpPort = etHttpPort.text.toString().toIntOrNull() ?: 8080
+        val pacUrl = "http://$lanIp:$httpPort/proxy.pac"
+        tvPacUrl.text = pacUrl
+        try {
+            val matrix = QRCodeWriter().encode(pacUrl, BarcodeFormat.QR_CODE, 400, 400)
+            val bmp = Bitmap.createBitmap(400, 400, Bitmap.Config.RGB_565)
+            for (x in 0 until 400) {
+                for (y in 0 until 400) {
+                    bmp.setPixel(x, y, if (matrix[x, y]) Color.BLACK else Color.WHITE)
+                }
+            }
+            ivQrCode.setImageBitmap(bmp)
+        } catch (_: Exception) {}
+    }
+
+    private fun savePrefs() {
+        val selected = spinnerIp.selectedItem?.toString() ?: "0.0.0.0"
+        val bindHost = selected.substringBefore(" ").trim()
+        getSharedPreferences("netshare_v3", Context.MODE_PRIVATE).edit()
+            .putString("bindHost", bindHost)
+            .putBoolean("httpEnabled", switchHttp.isChecked)
+            .putInt("httpPort", etHttpPort.text.toString().toIntOrNull() ?: 8080)
+            .putBoolean("socksEnabled", switchSocks.isChecked)
+            .putInt("socksPort", etSocksPort.text.toString().toIntOrNull() ?: 1080)
+            .putBoolean("adBlockEnabled", switchAdBlock.isChecked)
+            .putBoolean("authEnabled", switchAuth.isChecked)
+            .putString("username", etUsername.text.toString())
+            .putString("password", etPassword.text.toString())
             .apply()
     }
 
-    private fun startSelectedProxies() {
-        val selectedInterface = interfaces.getOrNull(binding.spinnerInterfaces.selectedItemPosition)
-        val bindIp = selectedInterface?.ipAddress ?: "0.0.0.0"
-        val httpPort = binding.etHttpPort.text.toString().toIntOrNull() ?: 8080
-        val socksPort = binding.etSocksPort.text.toString().toIntOrNull() ?: 1080
-
-        val config = ProxyConfig(
-            bindAddress = bindIp,
-            httpEnabled = binding.switchHttp.isChecked,
-            httpPort = httpPort,
-            socksEnabled = binding.switchSocks.isChecked,
-            socksPort = socksPort,
-            authEnabled = binding.switchAuth.isChecked,
-            username = binding.etUsername.text.toString().trim(),
-            password = binding.etPassword.text.toString()
-        )
-
-        updateEndpointBanner()
-        proxyService?.startProxies(config)
+    private fun loadPrefs() {
+        val p = getSharedPreferences("netshare_v3", Context.MODE_PRIVATE)
+        switchHttp.isChecked = p.getBoolean("httpEnabled", true)
+        etHttpPort.setText(p.getInt("httpPort", 8080).toString())
+        switchSocks.isChecked = p.getBoolean("socksEnabled", true)
+        etSocksPort.setText(p.getInt("socksPort", 1080).toString())
+        switchAdBlock.isChecked = p.getBoolean("adBlockEnabled", true)
+        switchAuth.isChecked = p.getBoolean("authEnabled", false)
+        layoutAuthFields.visibility = if (switchAuth.isChecked) View.VISIBLE else View.GONE
+        etUsername.setText(p.getString("username", ""))
+        etPassword.setText(p.getString("password", ""))
     }
 
-    private fun updateStatusUi(httpRunning: Boolean, socksRunning: Boolean) {
-        val anyRunning = httpRunning || socksRunning
-        updateEndpointBanner()
-
-        if (anyRunning) {
-            binding.btnToggleProxy.text = "ARRÊTER LE SERVEUR PROXY"
-            binding.btnToggleProxy.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#EF4444"))
-            binding.btnToggleProxy.setTextColor(Color.WHITE)
-            binding.tvStatusBadge.text = "● ACTIF  (HTTP: ${if (httpRunning) "ON" else "OFF"} | SOCKS5: ${if (socksRunning) "ON" else "OFF"})"
-            binding.tvStatusBadge.setTextColor(Color.parseColor("#00E676"))
-            binding.tvStatusBadge.setBackgroundResource(R.drawable.bg_status_pill_on)
-        } else {
-            binding.btnToggleProxy.text = "DÉMARRER LE SERVEUR PROXY"
-            binding.btnToggleProxy.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#00E676"))
-            binding.btnToggleProxy.setTextColor(Color.parseColor("#06120E"))
-            binding.tvStatusBadge.text = "● SERVEUR ARRÊTÉ"
-            binding.tvStatusBadge.setTextColor(Color.parseColor("#FF5252"))
-            binding.tvStatusBadge.setBackgroundResource(R.drawable.bg_status_pill_off)
-        }
+    private fun copyToClipboard(label: String, text: String) {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText(label, text))
+        Toast.makeText(this, "$label copié : $text", Toast.LENGTH_SHORT).show()
     }
 
-    private fun formatBytes(bytes: Long): String {
-        if (bytes < 1024) return "$bytes B"
-        val kb = bytes / 1024.0
-        if (kb < 1024) return String.format(Locale.US, "%.1f KB", kb)
-        val mb = kb / 1024.0
-        if (mb < 1024) return String.format(Locale.US, "%.2f MB", mb)
-        val gb = mb / 1024.0
-        return String.format(Locale.US, "%.2f GB", gb)
-    }
-
-    private fun requestNotificationPermissionIfNeeded() {
+    private fun requestNotifPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    101
-                )
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
             }
         }
-    }
-
-    override fun onDestroy() {
-        uiHandler.removeCallbacks(statsRunnable)
-        if (isBound) {
-            unbindService(connection)
-            isBound = false
-        }
-        super.onDestroy()
     }
 }
