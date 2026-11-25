@@ -13,76 +13,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Apply fixed MainActivity.kt and HttpProxyServer.kt
+      - name: Fix MainActivity.kt and HttpProxyServer.kt
         run: |
-          cat << 'EOF_B64' | base64 -d | tar -xJf - -C .
-          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
-          EOF_B64
+          python3 - << 'PYEOF'
+          CR, LF, Q, BS = chr(13), chr(10), chr(34), chr(92)
+          CRLF = CR + LF
+          p1 = 'app/src/main/java/com/netshare/everyproxy/MainActivity.kt'
+          s1 = open(p1, encoding='utf-8').read()
+          s1 = s1.replace('.' + LF + Q, '.' + BS + 'n' + Q)
+          s1 = s1.replace('joinToString(' + Q + LF + Q + ')', 'joinToString(' + Q + BS + 'n' + Q + ')')
+          open(p1, 'w', encoding='utf-8').write(s1)
+
+          p2 = 'app/src/main/java/com/netshare/everyproxy/HttpProxyServer.kt'
+          s2 = open(p2, encoding='utf-8', newline='').read()
+          for old, new in [
+              ('headerText.split(' + Q + CRLF + Q + ')', 'headerText.split(' + Q + BS + 'r' + BS + 'n' + Q + ')'),
+              ('return ' + Q + 'PROXY $lanIp:${config.httpPort}; DIRECT' + Q + '; }' + LF + Q, 'return ' + BS + Q + 'PROXY $lanIp:${config.httpPort}; DIRECT' + BS + Q + '; }' + BS + 'n' + Q),
+              (Q + 'HTTP/1.1 200 OK' + CRLF + Q, Q + 'HTTP/1.1 200 OK' + BS + 'r' + BS + 'n' + Q),
+              (Q + 'Content-Type: application/x-ns-proxy-autoconfig' + CRLF + Q, Q + 'Content-Type: application/x-ns-proxy-autoconfig' + BS + 'r' + BS + 'n' + Q),
+              (Q + 'Content-Length: ${pacBody.toByteArray().size}' + CRLF + Q, Q + 'Content-Length: ${pacBody.toByteArray().size}' + BS + 'r' + BS + 'n' + Q),
+              (Q + 'Connection: close' + CRLF + CRLF + Q, Q + 'Connection: close' + BS + 'r' + BS + 'n' + BS + 'r' + BS + 'n' + Q),
+              (Q + 'HTTP/1.1 407 Proxy Authentication Required' + CRLF + Q, Q + 'HTTP/1.1 407 Proxy Authentication Required' + BS + 'r' + BS + 'n' + Q),
+              (Q + 'Proxy-Authenticate: Basic realm=' + Q + 'NetShareProxy' + Q + CRLF + Q, Q + 'Proxy-Authenticate: Basic realm=' + BS + Q + 'NetShareProxy' + BS + Q + BS + 'r' + BS + 'n' + Q),
+              (Q + 'HTTP/1.1 403 Forbidden' + CRLF + 'Connection: close' + CRLF + CRLF + Q, Q + 'HTTP/1.1 403 Forbidden' + BS + 'r' + BS + 'nConnection: close' + BS + 'r' + BS + 'n' + BS + 'r' + BS + 'n' + Q),
+              (Q + 'HTTP/1.1 200 Connection Established' + CRLF + CRLF + Q, Q + 'HTTP/1.1 200 Connection Established' + BS + 'r' + BS + 'n' + BS + 'r' + BS + 'n' + Q),
+          ]:
+              assert old in s2, f'Missing: {old!r}'
+              s2 = s2.replace(old, new)
+          open(p2, 'w', encoding='utf-8', newline='').write(s2)
+          PYEOF
           git config user.name "iamgptmax-png"
           git config user.email "iamgptmax-png@users.noreply.github.com"
           git add -A
