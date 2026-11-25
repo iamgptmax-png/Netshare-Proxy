@@ -166,12 +166,10 @@ class HttpProxyServer(
             if (b == -1) return null
             buf.write(b)
             state = when {
-                state == 0 && b == ''.code -> 1
-                state == 1 && b == '
-'.code -> 2
-                state == 2 && b == ''.code -> 3
-                state == 3 && b == '
-'.code -> return buf.toByteArray()
+                state == 0 && b == '\r'.code -> 1
+                state == 1 && b == '\n'.code -> 2
+                state == 2 && b == '\r'.code -> 3
+                state == 3 && b == '\n'.code -> return buf.toByteArray()
                 else -> 0
             }
             if (buf.size() > 65536) return null
