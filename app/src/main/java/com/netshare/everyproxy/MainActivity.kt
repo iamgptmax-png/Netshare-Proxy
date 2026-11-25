@@ -192,16 +192,14 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.btnClearLogs).setOnClickListener {
             ProxyService.logs.clear()
-            tvLogs.text = "[NetShare v3.0.0] Journaux effacés.
-"
+            tvLogs.text = "[NetShare v3.0.0] Journaux effacés.\n"
         }
 
         findViewById<MaterialButton>(R.id.btnShareLogs).setOnClickListener {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_SUBJECT, "Logs NetShare Proxy Pro v3.0.0")
-                putExtra(Intent.EXTRA_TEXT, ProxyService.logs.joinToString("
-"))
+                putExtra(Intent.EXTRA_TEXT, ProxyService.logs.joinToString("\n"))
             }
             startActivity(Intent.createChooser(shareIntent, "Exporter les logs"))
         }
@@ -239,8 +237,7 @@ class MainActivity : AppCompatActivity() {
         sparklineView.setSamples(ProxyService.speedHistory)
 
         if (tabNetwork.visibility == View.VISIBLE) {
-            tvLogs.text = ProxyService.logs.takeLast(60).joinToString("
-")
+            tvLogs.text = ProxyService.logs.takeLast(60).joinToString("\n")
         }
 
         if (tabDevices.visibility == View.VISIBLE) {

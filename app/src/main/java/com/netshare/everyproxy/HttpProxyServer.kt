@@ -62,8 +62,7 @@ class HttpProxyServer(
 
             val headerBytes = readHeaders(input) ?: return
             val headerText = String(headerBytes, Charsets.ISO_8859_1)
-            val lines = headerText.split("
-")
+            val lines = headerText.split("\r\n")
             if (lines.isEmpty()) return
 
             val parts = lines[0].split(" ")
@@ -74,17 +73,11 @@ class HttpProxyServer(
             // Serve /proxy.pac directly for zero-config clients
             if (method.equals("GET", true) && (target == "/proxy.pac" || target.endsWith("/proxy.pac"))) {
                 val lanIp = NetworkUtils.getBestShareableIp()
-                val pacBody = "function FindProxyForURL(url, host) { return "PROXY $lanIp:${config.httpPort}; DIRECT"; }
-"
-                val resp = "HTTP/1.1 200 OK
-" +
-                    "Content-Type: application/x-ns-proxy-autoconfig
-" +
-                    "Content-Length: ${pacBody.toByteArray().size}
-" +
-                    "Connection: close
-
-" + pacBody
+                val pacBody = "function FindProxyForURL(url, host) { return \"PROXY $lanIp:${config.httpPort}; DIRECT\"; }\n"
+                val resp = "HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: application/x-ns-proxy-autoconfig\r\n" +
+                    "Content-Length: ${pacBody.toByteArray().size}\r\n" +
+                    "Connection: close\r\n\r\n" + pacBody
                 output.write(resp.toByteArray(Charsets.UTF_8))
                 output.flush()
                 onLog("[HTTP] PAC servi à $clientIp")
@@ -95,13 +88,9 @@ class HttpProxyServer(
             if (config.authEnabled) {
                 val authLine = lines.firstOrNull { it.startsWith("Proxy-Authorization:", true) }
                 if (!checkAuth(authLine)) {
-                    val resp = "HTTP/1.1 407 Proxy Authentication Required
-" +
-                        "Proxy-Authenticate: Basic realm="NetShareProxy"
-" +
-                        "Connection: close
-
-"
+                    val resp = "HTTP/1.1 407 Proxy Authentication Required\r\n" +
+                        "Proxy-Authenticate: Basic realm=\"NetShareProxy\"\r\n" +
+                        "Connection: close\r\n\r\n"
                     output.write(resp.toByteArray())
                     output.flush()
                     return
@@ -114,10 +103,7 @@ class HttpProxyServer(
                 val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
 
                 if (config.adBlockEnabled && ClientTracker.isAdDomain(host)) {
-                    output.write("HTTP/1.1 403 Forbidden
-Connection: close
-
-".toByteArray())
+                    output.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n".toByteArray())
                     output.flush()
                     onLog("[BLOQUÉ] $host ($clientIp)")
                     return
@@ -128,9 +114,7 @@ Connection: close
                 remote.keepAlive = true
                 remote.connect(InetSocketAddress(host, port), 15000)
 
-                output.write("HTTP/1.1 200 Connection Established
-
-".toByteArray())
+                output.write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray())
                 output.flush()
                 onLog("[HTTPS] CONNECT $host:$port ($clientIp)")
 
@@ -142,10 +126,7 @@ Connection: close
                 val port = if (uri.port != -1) uri.port else 80
 
                 if (config.adBlockEnabled && ClientTracker.isAdDomain(host)) {
-                    output.write("HTTP/1.1 403 Forbidden
-Connection: close
-
-".toByteArray())
+                    output.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n".toByteArray())
                     output.flush()
                     onLog("[BLOQUÉ] $host ($clientIp)")
                     return
